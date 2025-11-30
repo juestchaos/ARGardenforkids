@@ -1,0 +1,2155 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AR 种植生态 - 最终修复版</title>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+    
+    <style>
+        body, html {
+            margin: 0;
+            padding: 0;
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #000;
+        }
+
+        #video-background {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            z-index: 1;
+            transform: scaleX(-1);
+            opacity: 0.8;
+        }
+
+        #canvas-layer {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none;
+        }
+        
+        #control-panel {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 20px;
+            border-radius: 12px;
+            z-index: 10;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            backdrop-filter: blur(10px);
+            width: 240px;
+            user-select: none;
+            -webkit-user-select: none;
+            max-height: 80vh;
+            overflow-y: auto;
+        }
+        
+        #wind-indicator {
+            margin-top: 15px;
+            padding-top: 10px;
+            border-top: 1px solid #eee;
+            font-size: 14px;
+            color: #333;
+            text-align: center;
+        }
+
+        #wind-bar {
+            width: 100%;
+            height: 8px;
+            background: #e0e0e0;
+            border-radius: 4px;
+            overflow: hidden;
+            margin-top: 5px;
+        }
+        #wind-level {
+            height: 100%;
+            width: 0%;
+            background: linear-gradient(to right, #8BC34A, #FFEB3B, #FF5722);
+            transition: width 0.1s;
+        }
+
+        h3 {margin: 0 0 15px 0;font-size: 16px;color: #333;text-align: center;border-bottom: 1px solid #eee;padding-bottom: 10px;}
+        .slider-container {display: flex;flex-direction: column;align-items: center;margin-bottom: 12px;}
+        input[type=range] {width: 100%;cursor: pointer;accent-color: #4CAF50;}
+        .slider-label {width: 100%; display: flex; justify-content: space-between; font-size: 12px; color: #555; margin-bottom: 2px;}
+        
+        #clear-btn {width: 100%;padding: 10px;background-color: #ff5252;color: white;border: none;border-radius: 6px;font-size: 14px;cursor: pointer;transition: background-color 0.2s, transform 0.1s;font-weight: bold;display: flex;align-items: center;justify-content: center;gap: 5px;}
+        #clear-btn:hover {background-color: #d32f2f;}
+        #clear-btn:active {transform: scale(0.98);}
+        #status {position: absolute;top: 20px;left: 20px;color: white;background: rgba(0,0,0,0.6);padding: 8px 15px;border-radius: 20px;z-index: 10;font-size: 14px;}
+        
+        #cursor-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 5;
+            overflow: hidden;
+        }
+
+        .hand-cursor {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border: 3px solid white;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            box-shadow: 0 0 10px rgba(0,255,0,0.5);
+            transition: border-color 0.1s, opacity 0.1s;
+            display: none; 
+        }
+        
+        #tap-to-start {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 20;
+            background: rgba(0, 0, 0, 0.85);
+            color: white;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            font-size: 20px;
+            text-align: center;
+            cursor: pointer;
+            transition: opacity 0.3s;
+        }
+        #tap-to-start p {
+            margin-top: 15px;
+            font-size: 14px;
+            color: #ccc;
+        }
+    </style>
+</head>
+<body>
+
+    <video id="video-background" playsinline></video>
+    <canvas id="canvas-layer"></canvas>
+    <div id="status">等待开始...</div>
+    
+    <div id="cursor-container"></div>
+
+    <div id="control-panel">
+        <h3>🌱 生态实验室</h3>
+        <div class="slider-container">
+            <div class="slider-label"><span>生长速度</span><span id="speed-val">2x</span></div>
+            <input type="range" id="speed-slider" min="1" max="10" value="2" step="1">
+        </div>
+        <div class="slider-container">
+            <div class="slider-label"><span>种子重力</span><span id="gravity-val">1.0</span></div>
+            <input type="range" id="gravity-slider" min="0.5" max="3.0" value="1.0" step="0.1">
+        </div>
+        <div class="slider-container">
+            <div class="slider-label"><span>风力/麦克灵敏度</span><span id="mic-val">1.0</span></div>
+            <input type="range" id="mic-slider" min="0.1" max="3.0" value="1.0" step="0.1">
+        </div>
+        <button id="clear-btn"><span>🗑️</span> 清除生态</button>
+        <div id="wind-indicator">
+            🍃 **风力等级**: <span id="wind-text">平静</span>
+            <div id="wind-bar"><div id="wind-level"></div></div>
+        </div>
+        <div style="margin-top:15px; font-size:12px; color:#888; text-align:center; border-top:1px solid #eee; padding-top:10px;">
+            提示: 支持多人多首同时捏合撒种<br>说话声音大小会对应产生风力。手还可以和云，动物互动。
+        </div>
+    </div>
+    
+    <div id="tap-to-start">
+        <p style="font-size:30px;">👆 点击进入 AR 花园</p>
+        <p>（点击后请允许摄像头/麦克风权限）</p>
+    </div>
+
+    <script>
+        const videoElement = document.getElementById('video-background');
+        const canvas = document.getElementById('canvas-layer');
+        const ctx = canvas.getContext('2d');
+        const statusDiv = document.getElementById('status');
+        const cursorContainer = document.getElementById('cursor-container');
+        const tapToStartDiv = document.getElementById('tap-to-start');
+        const windLevelBar = document.getElementById('wind-level');
+        const windText = document.getElementById('wind-text');
+
+        // UI 控件
+        const speedSlider = document.getElementById('speed-slider');
+        const gravitySlider = document.getElementById('gravity-slider');
+        const micSlider = document.getElementById('mic-slider');
+        const clearBtn = document.getElementById('clear-btn');
+        
+        const speedVal = document.getElementById('speed-val');
+        const gravityVal = document.getElementById('gravity-val');
+        const micVal = document.getElementById('mic-val');
+
+        let width, height;
+        let dpr = window.devicePixelRatio || 1;
+        
+        // 全局参数
+        let growthSpeedMultiplier = 2;
+        let seedGravityMultiplier = 1.0;
+        let micSensitivity = 1.0;
+
+        let plants = []; // 包含 Plant, Grass, Vegetable, TomatoPlant, Tree
+        let seeds = [];
+        let insects = []; 
+        let animals = []; // 新增：猫/狗列表
+        let clouds = []; 
+        let raindrops = []; 
+        let birds = []; 
+
+        let lastPinchStates = []; 
+        let windForce = 0; 
+        let windDirection = 1; 
+        
+        let audioContext = null;
+        let micInputStarted = false;
+
+        const greenPalette = ['#4CAF50', '#66BB6A', '#81C784', '#388E3C', '#2E7D32', '#1B5E20'];
+        const leafColor = '#8BC34A';
+        const stamenPalette = ['#FFEB3B', '#FFC107', '#FF9800', '#FFFFFF', '#FFCDD2', '#D7CCC8'];
+
+        function resize() {
+            dpr = window.devicePixelRatio || 1;
+            width = window.innerWidth;
+            height = window.innerHeight;
+            canvas.style.width = width + 'px';
+            canvas.style.height = height + 'px';
+            canvas.width = width * dpr;
+            canvas.height = height * dpr;
+            ctx.setTransform(1, 0, 0, 1, 0, 0); 
+        }
+        window.addEventListener('resize', resize);
+        resize();
+
+        speedSlider.addEventListener('input', (e) => {
+            growthSpeedMultiplier = parseInt(e.target.value);
+            speedVal.innerText = growthSpeedMultiplier + 'x';
+        });
+
+        gravitySlider.addEventListener('input', (e) => {
+            seedGravityMultiplier = parseFloat(e.target.value);
+            gravityVal.innerText = seedGravityMultiplier.toFixed(1);
+        });
+
+        micSlider.addEventListener('input', (e) => {
+            micSensitivity = parseFloat(e.target.value);
+            micVal.innerText = micSensitivity.toFixed(1);
+        });
+
+        clearBtn.addEventListener('click', () => {
+            plants = [];
+            seeds = [];
+            insects = []; 
+            animals = [];
+            birds = [];
+            clouds = [];
+            const initialCloudCount = 15; 
+            for (let i = 0; i < initialCloudCount; i++) {
+                clouds.push(new Cloud());
+            }
+        });
+        
+        function drawLeaf(ctx, x, y, size, angle, color, isSharp = false) {
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.rotate(angle);
+            ctx.beginPath();
+            if (isSharp) { 
+                ctx.moveTo(0, 0);
+                ctx.lineTo(size * 0.1, -size); 
+                ctx.lineTo(-size * 0.1, -size); 
+                ctx.closePath();
+            } else { 
+                ctx.moveTo(0, 0);
+                ctx.bezierCurveTo(size * 0.5, -size * 0.5, size * 1.5, -size * 0.2, size, 0);
+                ctx.bezierCurveTo(size * 1.5, size * 0.2, size * 0.5, size * 0.5, 0, 0);
+            }
+            ctx.fillStyle = color;
+            ctx.fill();
+            ctx.restore();
+        }
+
+        async function startMicInput() {
+            if (micInputStarted) return;
+            micInputStarted = true;
+            try {
+                if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                if (audioContext.state === 'suspended') await audioContext.resume();
+            } catch (e) { return; }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+                const source = audioContext.createMediaStreamSource(stream);
+                const analyser = audioContext.createAnalyser();
+                analyser.fftSize = 2048;
+                source.connect(analyser);
+                const bufferLength = analyser.frequencyBinCount;
+                const dataArray = new Uint8Array(bufferLength);
+                
+                function updateWindForce() {
+                    analyser.getByteTimeDomainData(dataArray);
+                    let sumOfSquares = 0;
+                    for (const amplitude of dataArray) {
+                        const normalized = (amplitude / 128) - 1; 
+                        sumOfSquares += normalized * normalized;
+                    }
+                    const rms = Math.sqrt(sumOfSquares / bufferLength);
+                    const noiseFloor = 0.005; 
+                    const maxRms = 0.25;      
+                    let adjustedRms = rms * micSensitivity; 
+                    let newWind = Math.max(0, (adjustedRms - noiseFloor) / (maxRms - noiseFloor));
+                    
+                    windForce = windForce * 0.9 + newWind * 0.1; 
+                    windForce = Math.min(1.2, windForce);
+
+                    windLevelBar.style.width = `${Math.min(1, windForce) * 100}%`;
+                    if (windForce > 0.7) windText.innerText = '狂风 💨';
+                    else if (windForce > 0.3) windText.innerText = '微风 🌬️';
+                    else windText.innerText = '平静';
+                    requestAnimationFrame(updateWindForce);
+                }
+                updateWindForce();
+            } catch (err) { windText.innerText = '麦克风被拒绝'; }
+        }
+        
+        class Seed {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vy = (2 + Math.random()) * seedGravityMultiplier; 
+                this.vx = (Math.random() - 0.5) * 2;
+                this.radius = 10; 
+                this.grounded = false;
+                this.rotation = 0;
+                this.rotationSpeed = (Math.random() - 0.5) * 0.1;
+            }
+
+            update() {
+                if (this.grounded) return;
+                this.vy += 0.15 * seedGravityMultiplier; 
+                this.y += this.vy;
+                this.x += this.vx + Math.sin(this.y * 0.05) * 0.8 + (windForce * 5 * windDirection);
+                this.rotation += this.rotationSpeed;
+
+                if (this.y >= height - 10) {
+                    this.y = height - 10;
+                    this.grounded = true;
+                    // 根据当前生态状态动态决定落地后长出的对象，保证：树+花 > 蔬菜 > 动物（且动物最多 10 只）
+                    const treeCount = plants.filter(p => p.constructor && p.constructor.name === 'Tree').length;
+                    const flowerCount = plants.filter(p => p instanceof Plant && p.hasFlowered).length;
+                    const vegCount = plants.filter(p => p instanceof Vegetable || p instanceof TomatoPlant).length;
+                    const animalCount = animals.length;
+
+                    // 初始概率（未归一化）
+                    let treeProb = 0.12;
+                    let plantProb = 0.38;
+                    let grassProb = 0.25;
+                    let vegProb = 0.25;
+
+                    // 若当前蔬菜数量 >= 树+花，则适当提升树/花概率，降低蔬菜概率
+                    if ((treeCount + flowerCount) <= vegCount) {
+                        vegProb = Math.max(0.05, vegProb - 0.15);
+                        treeProb += 0.08;
+                        plantProb += 0.07;
+                    }
+
+                    // 保证 蔬菜 数量 > 动物 数量 的倾向：如果动物较多，降低生成蔬菜概率
+                    if (animalCount >= vegCount) {
+                        vegProb = Math.max(0.02, vegProb - 0.12);
+                        plantProb += 0.06;
+                    }
+
+                    // 归一化
+                    const total = treeProb + plantProb + grassProb + vegProb;
+                    treeProb /= total; plantProb /= total; grassProb /= total; vegProb /= total;
+
+                    const rng = Math.random();
+                    if (rng < treeProb) {
+                        plants.push(new Tree(this.x, this.y));
+                    } else if (rng < treeProb + plantProb) {
+                        plants.push(new Plant(this.x, this.y));
+                    } else if (rng < treeProb + plantProb + grassProb) {
+                        plants.push(new Grass(this.x, this.y));
+                    } else {
+                        if (Math.random() < 0.45) { 
+                             plants.push(new TomatoPlant(this.x, this.y));
+                        } else {
+                             plants.push(new Vegetable(this.x, this.y)); 
+                        }
+                    }
+                }
+            }
+            draw(ctx) {
+                if (this.grounded) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.rotate(this.rotation);
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.radius, this.radius * 0.7, 0, 0, Math.PI * 2);
+                ctx.fillStyle = '#8D6E63'; 
+                ctx.fill();
+                ctx.beginPath();
+                ctx.ellipse(-this.radius * 0.3, -this.radius * 0.2, this.radius * 0.2, this.radius * 0.15, 0, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        // 新增：Tree 类，具有多阶段（seedling -> sapling -> small -> big），大树会结出果实
+        class Tree {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.stage = 'seedling';
+                this.currentHeight = 0;
+                this.maxHeight = height * (0.35 + Math.random() * 0.2);
+                this.segmentLength = 10;
+                this.segments = [{x: x, y: y, angle: -Math.PI/2, width: 10}];
+                // 生长速率改慢，让周期更长
+                this.growthRate = 0.08 + Math.random() * 0.06;
+                this.swayBase = Math.random() * 100;
+                this.fruits = [];
+                this.fruitGenerated = false;
+                this.branches = []; // 每个 branch: {baseIndex, angle, length}
+            }
+
+            update() {
+                // 分阶段生长（速度整体较慢）
+                if (this.stage === 'seedling') {
+                    this.currentHeight += 0.15 * growthSpeedMultiplier * this.growthRate;
+                    if (this.currentHeight > this.maxHeight * 0.25) this.stage = 'sapling';
+                } else if (this.stage === 'sapling') {
+                    this.currentHeight += 0.25 * growthSpeedMultiplier * this.growthRate;
+                    if (this.currentHeight > this.maxHeight * 0.5) this.stage = 'small';
+                } else if (this.stage === 'small') {
+                    this.currentHeight += 0.12 * growthSpeedMultiplier * this.growthRate;
+                    if (this.currentHeight >= this.maxHeight) this.stage = 'big';
+                    // 小树阶段开始生成分支（若还未生成）
+                    if (this.branches.length === 0) {
+                        const segCount = Math.max(3, this.segments.length);
+                        const branchCount = 2 + Math.floor(Math.random() * 3);
+                        for (let b = 0; b < branchCount; b++) {
+                            const baseIndex = Math.floor(segCount * (0.3 + Math.random() * 0.5));
+                            const angle = -Math.PI/2 + (Math.random() - 0.5) * Math.PI * 0.6 + (b%2===0? -0.4:0.4);
+                            const length = 20 + Math.random() * 40;
+                            this.branches.push({baseIndex, angle, length});
+                        }
+                    }
+                } else if (this.stage === 'big') {
+                    // 生成果实（只生成一次，挂在分支上）
+                    if (!this.fruitGenerated) {
+                        for (let bi = 0; bi < this.branches.length; bi++) {
+                            const br = this.branches[bi];
+                            if (Math.random() < 0.8) {
+                                const fruitCount = 1 + Math.floor(Math.random() * 3);
+                                for (let k = 0; k < fruitCount; k++) {
+                                    this.fruits.push({branchIndex: bi, t: 0.6 + Math.random() * 0.3, size: 2 + Math.random()*3, maxSize: 8 + Math.random()*8, ripeness: 0});
+                                }
+                            }
+                        }
+                        this.fruitGenerated = true;
+                    }
+                    this.fruits.forEach(f => {
+                        if (f.size < f.maxSize) f.size += 0.01 * growthSpeedMultiplier;
+                        if (f.ripeness < 1) f.ripeness += 0.0012 * growthSpeedMultiplier;
+                    });
+                }
+
+                // 维护分段
+                const targetSegments = Math.floor(this.currentHeight / this.segmentLength);
+                while (this.segments.length < Math.max(2, targetSegments)) {
+                    const last = this.segments[this.segments.length - 1];
+                    const newAngle = last.angle + (Math.random() - 0.5) * 0.2;
+                    const newX = last.x + Math.cos(newAngle) * this.segmentLength;
+                    const newY = last.y + Math.sin(newAngle) * this.segmentLength;
+                    this.segments.push({x: newX, y: newY, angle: newAngle, width: Math.max(6, last.width * 0.9)});
+                }
+
+                // 摇摆
+                let windBias = windForce * windDirection * 0.5;
+                let naturalSway = Math.sin(performance.now() * 0.001 + this.swayBase) * 0.06;
+                let rootAngle = -Math.PI/2 + naturalSway + windBias;
+                if (this.segments.length > 0) this.segments[0].angle = rootAngle;
+                for (let i = 1; i < this.segments.length; i++) {
+                    const prev = this.segments[i-1];
+                    const cur = this.segments[i];
+                    cur.angle += (prev.angle - cur.angle) * 0.1;
+                    cur.x = prev.x + Math.cos(cur.angle) * this.segmentLength;
+                    cur.y = prev.y + Math.sin(cur.angle) * this.segmentLength;
+                }
+            }
+
+            hydrate() {
+                // 给果实加速成熟
+                this.fruits.forEach(f => { f.ripeness = Math.min(1, f.ripeness + 0.05); f.size += 0.5; });
+            }
+
+            draw(ctx) {
+                // 树干：树苗阶段绿色，进入小树/大树后为棕色并加粗
+                ctx.save();
+                const trunkColor = this.stage === 'seedling' ? '#4CAF50' : '#6D4C41';
+                const widthMultiplier = this.stage === 'seedling' ? 0.8 : (this.stage === 'small' ? 1.4 : 1.8);
+                for (let i = 0; i < this.segments.length - 1; i++) {
+                    const a = this.segments[i];
+                    const b = this.segments[i+1];
+                    ctx.beginPath();
+                    ctx.moveTo(a.x, a.y);
+                    ctx.lineTo(b.x, b.y);
+                    ctx.strokeStyle = trunkColor;
+                    ctx.lineWidth = Math.max(2, a.width * widthMultiplier);
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+
+                // 树苗阶段：在干上点缀嫩叶
+                if (this.stage === 'seedling') {
+                    ctx.fillStyle = '#66BB6A';
+                    for (let i = 0; i < this.segments.length; i += 1) {
+                        const seg = this.segments[i];
+                        const lx = seg.x + (Math.random() - 0.5) * 6;
+                        const ly = seg.y + (Math.random() - 0.5) * 6 - 6;
+                        drawLeaf(ctx, lx, ly, 6 + Math.random() * 4, seg.angle + (Math.random() - 0.5) * 0.8, '#66BB6A');
+                    }
+                }
+                // 分支（在小树阶段开始出现）
+                for (let bi = 0; bi < this.branches.length; bi++) {
+                    const br = this.branches[bi];
+                    const baseSeg = this.segments[Math.min(br.baseIndex, this.segments.length - 1)];
+                    if (!baseSeg) continue;
+                    const bx = baseSeg.x;
+                    const by = baseSeg.y;
+                    const angle = br.angle + Math.sin(performance.now()*0.001 + bi) * 0.06 * windForce;
+                    const ex = bx + Math.cos(angle) * br.length;
+                    const ey = by + Math.sin(angle) * br.length;
+                    // 分支（棕色）
+                    ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(ex, ey);
+                    ctx.strokeStyle = '#5D4037'; ctx.lineWidth = Math.max(2, 6 - bi);
+                    ctx.lineCap = 'round'; ctx.stroke();
+                    // 叶子（小树/大树阶段）
+                    ctx.fillStyle = '#4CAF50';
+                    const leafCount = 6;
+                    for (let li = 0; li < leafCount; li++) {
+                        const t = li / leafCount;
+                        const lx = bx + (ex - bx) * (0.2 + t * 0.7) + (Math.random() - 0.5) * 6;
+                        const ly = by + (ey - by) * (0.2 + t * 0.7) + (Math.random() - 0.5) * 6;
+                        drawLeaf(ctx, lx, ly, 6 + (this.stage==='big'?4:0) + Math.random()*4, Math.atan2(ey-by, ex-bx) + (Math.random()-0.5)*0.8, '#66BB6A');
+                    }
+                }
+
+                // 树冠（以分支为主体呈现），小树与大树仅大小差别
+                if (this.stage === 'small' || this.stage === 'big') {
+                    // 如果没有分支，仍画基础树冠
+                    if (this.branches.length === 0) {
+                        const last = this.segments[this.segments.length - 1];
+                        const canopyRadius = 18 + (this.currentHeight / this.maxHeight) * 40;
+                        ctx.fillStyle = '#2E7D32';
+                        ctx.beginPath(); ctx.arc(last.x, last.y - canopyRadius * 0.3, canopyRadius, 0, Math.PI*2); ctx.fill();
+                    }
+                }
+
+                // 果实（仅挂在分支端点，且仅在大树阶段）
+                if (this.stage === 'big') {
+                    this.fruits.forEach(f => {
+                        const br = this.branches[f.branchIndex];
+                        if (!br) return;
+                        const baseSeg = this.segments[Math.min(br.baseIndex, this.segments.length - 1)];
+                        const angle = br.angle + Math.sin(performance.now()*0.001 + f.branchIndex) * 0.03;
+                        const bx = baseSeg.x + Math.cos(angle) * br.length * f.t;
+                        const by = baseSeg.y + Math.sin(angle) * br.length * f.t;
+                        const r = f.size;
+                        const rip = Math.min(1, f.ripeness);
+                        const color = `rgb(${Math.floor(200 + rip*30)}, ${Math.floor(60 + (1-rip)*100)}, 40)`;
+                        ctx.save(); ctx.translate(bx, by);
+                        ctx.fillStyle = color; ctx.beginPath(); ctx.arc(0,0,r,0,Math.PI*2); ctx.fill(); ctx.restore();
+                    });
+                }
+
+                ctx.restore();
+            }
+        }
+
+        class TomatoPlant {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.isFlower = false; 
+                this.stage = 'seedling'; 
+                this.maxHeight = height * (0.2 + Math.random() * 0.15);
+                this.segments = [];
+                this.currentHeight = 0;
+                this.growthRate = 1.0 + Math.random() * 0.5;
+                this.color = '#33691E'; 
+                this.angle = -Math.PI / 2;
+                this.width = 5 + Math.random() * 3;
+                this.segmentLength = 8; 
+                this.segments.push({x: x, y: y, angle: this.angle, width: this.width});
+                this.rootAngle = this.angle;
+                this.targetRootAngle = this.angle;
+                this.hydrationCooldown = 0;
+                this.swayBase = Math.random() * 100;
+                this.stateTimer = 0;
+                this.flowers = []; 
+                this.fruits = []; 
+                this.leafDensity = 0.4; 
+            }
+
+            update() {
+                this.stateTimer += growthSpeedMultiplier;
+                switch (this.stage) {
+                    case 'seedling':
+                        if (this.currentHeight < this.maxHeight * 0.1) {
+                             this.growStem(this.growthRate * 0.3);
+                        } else {
+                            this.stage = 'growing';
+                            this.stateTimer = 0;
+                        }
+                        break;
+                    case 'growing':
+                        if (this.currentHeight < this.maxHeight * 0.8) {
+                            this.growStem(this.growthRate);
+                        } else if (this.stateTimer > 200) { 
+                             this.stage = 'flowering';
+                             this.generateFlowers();
+                             this.stateTimer = 0;
+                        }
+                        break;
+                    case 'flowering':
+                        if (this.stateTimer > 300) { 
+                            this.stage = 'fruiting';
+                            this.convertFlowersToFruits();
+                            this.stateTimer = 0;
+                        }
+                        break;
+                    case 'fruiting':
+                    case 'mature':
+                        this.fruits.forEach(fruit => {
+                            if (fruit.size < fruit.maxSize) {
+                                fruit.size += 0.02 * growthSpeedMultiplier;
+                            }
+                            if (fruit.ripeness < 1) {
+                                fruit.ripeness += 0.0015 * growthSpeedMultiplier;
+                            }
+                        });
+                        if (this.fruits.every(f => f.ripeness >= 1)) {
+                             this.stage = 'mature';
+                        }
+                        break;
+                }
+                this.applySwayToSegments();
+                if (this.hydrationCooldown > 0) this.hydrationCooldown--;
+            }
+            
+            growStem(rate) {
+                let speed = rate * growthSpeedMultiplier;
+                this.currentHeight += speed;
+                
+                const targetSegmentsCount = Math.floor(this.currentHeight / this.segmentLength);
+                if (this.segments.length < targetSegmentsCount) {
+                    let lastSeg = this.segments[this.segments.length - 1];
+                    let newAngle = lastSeg.angle + (Math.random() - 0.5) * 0.15;
+                    newAngle = Math.max(-Math.PI/2 - 0.3, Math.min(-Math.PI/2 + 0.3, newAngle));
+                    let newX = lastSeg.x + Math.cos(newAngle) * this.segmentLength;
+                    let newY = lastSeg.y + Math.sin(newAngle) * this.segmentLength;
+                    let newWidth = this.width * (1 - this.currentHeight / this.maxHeight * 0.5); 
+                    this.segments.push({x: newX, y: newY, angle: newAngle, width: newWidth});
+                }
+            }
+            
+            generateFlowers() {
+                for (let i = Math.floor(this.segments.length * 0.4); i < this.segments.length - 2; i++) {
+                    if (Math.random() < 0.2) {
+                        const seg = this.segments[i];
+                        this.flowers.push({
+                            segIndex: i,
+                            side: Math.random() > 0.5 ? 1 : -1,
+                            offsetAngle: (Math.random() * 0.5 + 0.5) 
+                        });
+                    }
+                }
+            }
+
+            convertFlowersToFruits() {
+                this.flowers.forEach((flower, index) => {
+                    this.fruits.push({
+                        segIndex: flower.segIndex,
+                        side: flower.side,
+                        offsetAngle: flower.offsetAngle,
+                        size: 2, 
+                        maxSize: 12 + Math.random() * 8, 
+                        ripeness: 0, 
+                        id: index
+                    });
+                });
+                this.flowers = []; 
+            }
+
+            hydrate() { 
+                if (this.hydrationCooldown <= 0) {
+                     this.growthRate *= 1.02;
+                     this.fruits.forEach(f => {
+                         f.ripeness += 0.05;
+                         f.size += 0.5;
+                     });
+                     this.hydrationCooldown = 40;
+                }
+            }
+
+            applySwayToSegments() {
+                let baseAngle = -Math.PI / 2;
+                let windBias = windForce * windDirection * 0.3; 
+                let naturalSway = Math.sin(performance.now() * 0.0015 + this.swayBase) * 0.1; 
+                let elasticity = 0.08; 
+                this.targetRootAngle = baseAngle + naturalSway + windBias;
+                this.rootAngle += (this.targetRootAngle - this.rootAngle) * (elasticity + windForce * 0.05); 
+                
+                if (this.segments.length > 0) this.segments[0].angle = this.rootAngle;
+
+                for (let i = 1; i < this.segments.length; i++) {
+                    const prevSeg = this.segments[i - 1];
+                    const currentSeg = this.segments[i];
+                    let segWindBias = windBias * (i / this.segments.length) * 0.2;
+                    currentSeg.angle = prevSeg.angle + (currentSeg.angle - prevSeg.angle) * 0.7 + segWindBias; 
+                    currentSeg.x = prevSeg.x + Math.cos(currentSeg.angle) * this.segmentLength;
+                    currentSeg.y = prevSeg.y + Math.sin(currentSeg.angle) * this.segmentLength;
+                    
+                    const heightProgress = i / this.segments.length;
+                    currentSeg.width = this.width * (1 - heightProgress * 0.5);
+                }
+            }
+
+            draw(ctx) {
+                if (this.segments.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.segments[0].x, this.segments[0].y);
+                    for (let i = 1; i < this.segments.length - 1; i++) {
+                        let current = this.segments[i];
+                        let next = this.segments[i + 1];
+                        let xc = (current.x + next.x) / 2;
+                        let yc = (current.y + next.y) / 2;
+                        ctx.quadraticCurveTo(current.x, current.y, xc, yc);
+                    }
+                    let last = this.segments[this.segments.length-1];
+                    ctx.lineTo(last.x, last.y); 
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = last.width;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+
+                if (this.stage === 'seedling') {
+                    if (this.segments.length > 1) {
+                        let tip = this.segments[this.segments.length-1];
+                        drawLeaf(ctx, tip.x, tip.y, 8, tip.angle - Math.PI/4, '#66BB6A');
+                        drawLeaf(ctx, tip.x, tip.y, 8, tip.angle + Math.PI/4, '#66BB6A');
+                    }
+                } else {
+                    for (let i = 2; i < this.segments.length; i += 2) {
+                        if (Math.random() > this.leafDensity) continue;
+                        const seg = this.segments[i];
+                        const leafSize = 10 + (i/this.segments.length) * 5;
+                        this.drawTomatoLeaf(ctx, seg.x, seg.y, leafSize, seg.angle - Math.PI/2.5);
+                        this.drawTomatoLeaf(ctx, seg.x, seg.y, leafSize, seg.angle + Math.PI/2.5);
+                    }
+                }
+
+                if (this.stage === 'flowering') {
+                    this.flowers.forEach(flower => {
+                        const seg = this.segments[flower.segIndex];
+                        if (!seg) return;
+                        const flowerX = seg.x + Math.cos(seg.angle + flower.side * flower.offsetAngle) * 10;
+                        const flowerY = seg.y + Math.sin(seg.angle + flower.side * flower.offsetAngle) * 10;
+                        this.drawYellowFlower(ctx, flowerX, flowerY, 6);
+                    });
+                }
+
+                if (this.stage === 'fruiting' || this.stage === 'mature') {
+                    this.fruits.forEach(fruit => {
+                        const seg = this.segments[fruit.segIndex];
+                        if (!seg) return;
+                        const fruitX = seg.x + Math.cos(seg.angle + fruit.side * fruit.offsetAngle) * 12;
+                        const fruitY = seg.y + Math.sin(seg.angle + fruit.side * fruit.offsetAngle) * 12;
+                        const r = Math.floor(50 + fruit.ripeness * 180); 
+                        const g = Math.floor(160 - fruit.ripeness * 140); 
+                        const b = 20;
+                        const color = `rgb(${r},${g},${b})`;
+                        this.drawTomato(ctx, fruitX, fruitY, fruit.size, color);
+                    });
+                }
+            }
+            
+            drawTomatoLeaf(ctx, x, y, size, angle) {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.rotate(angle);
+                ctx.fillStyle = '#2E7D32'; 
+                ctx.beginPath();
+                ctx.moveTo(0, 0);
+                for(let i=0; i<3; i++) {
+                     ctx.lineTo(size * (0.3 + i*0.2), -size * 0.2 * (i%2===0 ? 1 : 0.5));
+                     ctx.lineTo(size * (0.4 + i*0.2), -size * 0.4);
+                }
+                ctx.lineTo(size, 0);
+                 for(let i=2; i>=0; i--) {
+                     ctx.lineTo(size * (0.4 + i*0.2), size * 0.4);
+                     ctx.lineTo(size * (0.3 + i*0.2), size * 0.2 * (i%2===0 ? 1 : 0.5));
+                }
+                ctx.closePath();
+                ctx.fill();
+                ctx.restore();
+            }
+            
+            drawYellowFlower(ctx, x, y, size) {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.fillStyle = '#FFEB3B';
+                for (let i = 0; i < 5; i++) {
+                    ctx.beginPath();
+                    ctx.rotate(Math.PI * 2 / 5);
+                    ctx.ellipse(0, size * 0.4, size * 0.2, size * 0.4, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+                ctx.fillStyle = '#FBC02D'; 
+                ctx.beginPath();
+                ctx.arc(0,0, size*0.2, 0, Math.PI*2);
+                ctx.fill();
+                ctx.restore();
+            }
+
+            drawTomato(ctx, x, y, size, color) {
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.arc(0, 0, size, 0, Math.PI * 2);
+                ctx.fill();
+                
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.3)';
+                ctx.beginPath();
+                ctx.ellipse(-size*0.3, -size*0.3, size*0.2, size*0.1, Math.PI/4, 0, Math.PI*2);
+                ctx.fill();
+
+                ctx.fillStyle = '#558B2F';
+                ctx.beginPath();
+                for(let i=0; i<5; i++) {
+                    ctx.rotate(Math.PI * 2 / 5);
+                    ctx.moveTo(0,0);
+                    ctx.lineTo(size*0.4, size*0.1);
+                    ctx.lineTo(size*0.5, 0);
+                    ctx.lineTo(size*0.4, -size*0.1);
+                }
+                ctx.fill();
+                ctx.restore();
+            }
+        }
+
+        class Vegetable {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.isFlower = false; 
+                this.type = ['watermelon', 'pumpkin', 'cabbage'][Math.floor(Math.random() * 3)];
+                this.baseSize = 30 + Math.random() * 25; 
+                this.size = 0;
+                this.maxSize = this.baseSize;
+                this.growthRate = 0.05 + Math.random() * 0.03;
+                this.hydrationCooldown = 0;
+            }
+
+            update() {
+                if (this.size < this.maxSize) {
+                    this.size += this.growthRate * growthSpeedMultiplier;
+                }
+                if (this.hydrationCooldown > 0) this.hydrationCooldown--;
+            }
+
+            hydrate() {
+                if (this.hydrationCooldown <= 0) {
+                     this.maxSize *= 1.05; 
+                     this.hydrationCooldown = 60;
+                     this.size = Math.min(this.size, this.maxSize); 
+                }
+            }
+
+            draw(ctx) {
+                if (this.size < 1) return;
+                ctx.save();
+                ctx.translate(this.x, this.y);
+
+                if (this.type === 'watermelon') {
+                    const r = this.size;
+                    ctx.beginPath();
+                    ctx.ellipse(0, -r * 0.5, r, r * 0.85, 0, 0, Math.PI * 2);
+                    ctx.fillStyle = '#2E7D32'; 
+                    ctx.fill();
+                    ctx.clip(); 
+
+                    ctx.strokeStyle = '#81C784'; 
+                    ctx.lineWidth = r * 0.15;
+                    ctx.lineCap = 'round';
+                    for (let i = -2; i <= 2; i++) {
+                        ctx.beginPath();
+                        ctx.moveTo(i * r * 0.5, -r * 1.5);
+                        ctx.bezierCurveTo(
+                            i * r * 0.6 + r*0.2, -r * 0.5, 
+                            i * r * 0.4 - r*0.2, -r * 0.2, 
+                            i * r * 0.5, r * 0.5
+                        );
+                        ctx.stroke();
+                    }
+                    
+                    ctx.strokeStyle = '#558B2F';
+                    ctx.lineWidth = 2;
+                    ctx.beginPath();
+                    ctx.moveTo(0, -r * 1.35); 
+                    ctx.quadraticCurveTo(5, -r * 1.5, 10, -r * 1.4);
+                    ctx.stroke();
+
+                } else if (this.type === 'pumpkin') {
+                    const r = this.size;
+                    const h = r * 0.7; 
+                    
+                    ctx.fillStyle = '#FB8C00'; 
+                    
+                    ctx.beginPath();
+                    ctx.ellipse(-r * 0.6, -h * 0.6, r * 0.5, h * 0.9, -0.2, 0, Math.PI * 2);
+                    ctx.ellipse(r * 0.6, -h * 0.6, r * 0.5, h * 0.9, 0.2, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#FF9800'; 
+                    ctx.beginPath();
+                    ctx.ellipse(-r * 0.3, -h * 0.65, r * 0.5, h * 0.95, -0.1, 0, Math.PI * 2);
+                    ctx.ellipse(r * 0.3, -h * 0.65, r * 0.5, h * 0.95, 0.1, 0, Math.PI * 2);
+                    ctx.fill();
+
+                    ctx.fillStyle = '#FFA726'; 
+                    ctx.beginPath();
+                    ctx.ellipse(0, -h * 0.7, r * 0.45, h * 1.0, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                    
+                    ctx.strokeStyle = '#E65100'; 
+                    ctx.lineWidth = 1;
+                    
+                    ctx.fillStyle = '#388E3C';
+                    ctx.beginPath();
+                    ctx.moveTo(-r * 0.1, -h * 1.5);
+                    ctx.lineTo(r * 0.1, -h * 1.5);
+                    ctx.lineTo(r * 0.15, -h * 1.2); 
+                    ctx.lineTo(-r * 0.15, -h * 1.2);
+                    ctx.fill();
+
+                } else if (this.type === 'cabbage') {
+                    const rad = this.size * 0.8;
+                    ctx.fillStyle = '#8BC34A'; 
+                    for (let i = 0; i < 5; i++) {
+                        ctx.beginPath();
+                        ctx.ellipse(
+                            (Math.random()-0.5)*rad*0.2, 
+                            -rad * 0.5 + (Math.random()-0.5)*rad*0.1, 
+                            rad * (0.8 + Math.random()*0.2), 
+                            rad * 0.8, 
+                            (Math.random()-0.5), 0, Math.PI * 2
+                        );
+                        ctx.fillStyle = i % 2 === 0 ? '#AED581' : '#8BC34A'; 
+                        ctx.fill();
+                        ctx.strokeStyle = '#DCEDC8'; 
+                        ctx.lineWidth = 1;
+                        ctx.stroke();
+                    }
+                }
+
+                ctx.restore();
+            }
+        }
+
+        class Bird {
+            constructor() {
+                this.fromLeft = Math.random() > 0.5;
+                this.x = this.fromLeft ? -100 : width + 100;
+                this.y = height * (0.1 + Math.random() * 0.4); 
+                this.speed = 3 + Math.random() * 2;
+                this.vx = this.fromLeft ? this.speed : -this.speed;
+                this.amplitude = 10 + Math.random() * 20; 
+                this.freq = 0.01 + Math.random() * 0.01; 
+                this.phase = Math.random() * Math.PI * 2;
+                this.wingPhase = 0;
+                this.wingSpeed = 0.2 + Math.random() * 0.1;
+                this.initialY = this.y;
+                const colors = ['#E53935', '#1E88E5', '#FDD835', '#43A047'];
+                this.bodyColor = colors[Math.floor(Math.random() * colors.length)];
+            }
+
+            update() {
+                this.x += this.vx;
+                this.phase += this.freq;
+                this.y = this.initialY + Math.sin(this.phase) * this.amplitude;
+                this.wingPhase += this.wingSpeed;
+                this.x += windForce * 3 * windDirection;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                const size = 12;
+                const facingRight = this.vx > 0;
+                if (!facingRight) {
+                    ctx.scale(-1, 1);
+                }
+
+                ctx.fillStyle = this.bodyColor;
+                ctx.beginPath();
+                ctx.ellipse(0, 0, size * 1.2, size * 0.8, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.beginPath();
+                ctx.arc(size * 0.8, -size * 0.5, size * 0.6, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = 'white';
+                ctx.beginPath();
+                ctx.arc(size * 1.0, -size * 0.6, size * 0.25, 0, Math.PI * 2);
+                ctx.fill();
+                ctx.fillStyle = 'black';
+                ctx.beginPath();
+                ctx.arc(size * 1.1, -size * 0.6, size * 0.1, 0, Math.PI * 2);
+                ctx.fill();
+
+                ctx.fillStyle = '#FFEB3B';
+                ctx.beginPath();
+                ctx.moveTo(size * 1.3, -size * 0.5);
+                ctx.lineTo(size * 1.8, -size * 0.3);
+                ctx.lineTo(size * 1.3, -size * 0.1);
+                ctx.fill();
+
+                ctx.fillStyle = QtLighten(this.bodyColor, 40); 
+                ctx.beginPath();
+                const wingY = Math.sin(this.wingPhase) * size;
+                ctx.moveTo(-size * 0.2, -size * 0.2);
+                ctx.quadraticCurveTo(-size * 0.8, -size * 1.5 + wingY, size * 0.5, -size * 0.5 + wingY*0.5);
+                ctx.lineTo(0, 0);
+                ctx.fill();
+                
+                ctx.fillStyle = this.bodyColor;
+                ctx.beginPath();
+                ctx.moveTo(-size, 0);
+                ctx.lineTo(-size * 1.8, -size * 0.5);
+                ctx.lineTo(-size * 1.8, size * 0.2);
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+        
+        function QtLighten(color, percent) {
+            var num = parseInt(color.replace("#",""),16),
+            amt = Math.round(2.55 * percent),
+            R = (num >> 16) + amt,
+            B = (num >> 8 & 0x00FF) + amt,
+            G = (num & 0x0000FF) + amt;
+            return "#" + (0x1000000 + (R<255?R<1?0:R:255)*0x10000 + (B<255?B<1?0:B:255)*0x100 + (G<255?G<1?0:G:255)).toString(16).slice(1);
+        }
+
+        class Insect {
+            constructor() {
+                this.fromLeft = Math.random() > 0.5;
+                this.x = this.fromLeft ? -80 : width + 80;
+                this.y = Math.random() * (height * 0.6); 
+                
+                this.type = Math.random() > 0.6 ? 'bee' : 'butterfly'; 
+                this.targetPlant = null;
+                this.state = 'seeking'; 
+                this.pollinateTimer = 0;
+                this.pollinateDuration = 100 + Math.random() * 100;
+                
+                this.speed = this.type === 'bee' ? 4 + Math.random() * 2 : 2 + Math.random(); 
+                this.wobblePhase = Math.random() * Math.PI * 2;
+                
+                this.baseSize = this.type === 'bee' ? 18 : 24; 
+                
+                this.wingAngle = 0;
+                this.wingSpeed = this.type === 'bee' ? 0.8 : 0.2;
+            }
+
+            findTarget() {
+                const floweringPlants = plants.filter(p => p.hasFlowered && p.flowerSize > 5 && p instanceof Plant);
+                if (floweringPlants.length > 0) {
+                    this.targetPlant = floweringPlants[Math.floor(Math.random() * floweringPlants.length)];
+                }
+            }
+
+            update() {
+                this.wingAngle += this.wingSpeed;
+                this.wobblePhase += 0.1;
+
+                if (this.state === 'seeking') {
+                    if (!this.targetPlant) {
+                        this.findTarget();
+                        if (!this.targetPlant && Math.random() < 0.01) this.state = 'leaving';
+                    }
+
+                    if (this.targetPlant) {
+                        let tip = this.targetPlant.segments[this.targetPlant.segments.length - 1];
+                        let dx = tip.x - this.x;
+                        let dy = (tip.y - 15) - this.y; 
+                        let dist = Math.hypot(dx, dy);
+
+                        if (dist < 15) {
+                            this.state = 'pollinating';
+                        } else {
+                            let angle = Math.atan2(dy, dx);
+                            this.x += Math.cos(angle) * this.speed;
+                            this.y += Math.sin(angle) * this.speed;
+                        }
+                    } else {
+                        this.x += (this.fromLeft ? 1 : -1) * this.speed * 0.5;
+                        this.y += Math.sin(this.wobblePhase) * 1.5;
+                    }
+                } 
+                else if (this.state === 'pollinating') {
+                    if (this.targetPlant) {
+                         let tip = this.targetPlant.segments[this.targetPlant.segments.length - 1];
+                         this.x = tip.x + Math.sin(this.wobblePhase * 2) * 5;
+                         this.y = tip.y - 15 + Math.cos(this.wobblePhase * 2) * 3;
+                    }
+                    this.pollinateTimer++;
+                    if (this.pollinateTimer > this.pollinateDuration) {
+                        this.state = 'leaving';
+                        this.fromLeft = !this.fromLeft; 
+                    }
+                }
+                else if (this.state === 'leaving') {
+                    let targetX = this.fromLeft ? -100 : width + 100;
+                    let dx = targetX - this.x;
+                    let dy = -200 - this.y;
+                    let angle = Math.atan2(dy, dx);
+                    this.x += Math.cos(angle) * this.speed * 1.5; 
+                    this.y += Math.sin(angle) * this.speed * 1.5;
+                }
+                this.x += windForce * 2 * windDirection;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                
+                let facingRight = true;
+                if (this.state === 'seeking' && this.targetPlant) {
+                    let tip = this.targetPlant.segments[this.targetPlant.segments.length - 1];
+                    facingRight = tip.x > this.x;
+                } else if (this.state === 'leaving') {
+                     facingRight = !this.fromLeft; 
+                } else {
+                     facingRight = this.fromLeft;
+                }
+                
+                if (!facingRight) ctx.scale(-1, 1);
+
+                const scaleFactor = this.baseSize / 8; 
+                ctx.scale(scaleFactor, scaleFactor);
+
+                if (this.type === 'bee') {
+                    ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+                    ctx.beginPath();
+                    let wingY = Math.sin(this.wingAngle) * 5;
+                    ctx.ellipse(-2, -5, 4, 6 - Math.abs(wingY)*0.5, Math.PI/4, 0, Math.PI*2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#FFC107'; 
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 6, 4, 0, 0, Math.PI*2);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#000';
+                    ctx.fillRect(-2, -3, 2, 6);
+                    ctx.fillRect(2, -3, 2, 6);
+                } else {
+                    ctx.fillStyle = this.fromLeft ? '#E91E63' : '#03A9F4'; 
+                    let flap = Math.abs(Math.sin(this.wingAngle));
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.quadraticCurveTo(-10 * flap, -15, -15 * flap, -5);
+                    ctx.quadraticCurveTo(-10 * flap, 10, 0, 0);
+                    ctx.fill();
+                    
+                    ctx.beginPath();
+                    ctx.moveTo(0, 0);
+                    ctx.quadraticCurveTo(10, -15, 15, -5); 
+                    ctx.quadraticCurveTo(10, 10, 0, 0);
+                    ctx.fill();
+                    
+                    ctx.fillStyle = '#333';
+                    ctx.beginPath();
+                    ctx.ellipse(0, 0, 2, 6, 0, 0, Math.PI*2);
+                    ctx.fill();
+                }
+                ctx.restore();
+            }
+        }
+        
+        // 新增：动物（猫/狗）类，响应捏合播放声音
+        class Animal {
+            constructor(x, y, type) {
+                this.x = x;
+                this.y = y;
+                this.type = type || (Math.random() > 0.5 ? 'cat' : 'dog');
+                this.size = (this.type === 'cat' ? 26 : 36) * 1.22; // 放大22%
+                this.vx = (Math.random() - 0.5) * 1.2;
+                this.vy = 0;
+                this.grounded = true;
+                this.reactTimer = 0;
+                this.barkCooldown = 0;
+                this.idleTimer = Math.random() * 200;
+                this.legPhase = Math.random() * Math.PI * 2;
+                this.legSpeed = 0.12 + Math.random() * 0.08;
+                this.pattern = this.type === 'cat' ? 'stripes' : 'spots';
+            }
+
+            update() {
+                this.idleTimer++;
+                // 轻微游走
+                this.x += this.vx + windForce * 1.5 * windDirection;
+                if (this.x < -50 || this.x > width + 50) {
+                    this.vx = -this.vx;
+                }
+                if (this.reactTimer > 0) this.reactTimer--;
+                if (this.barkCooldown > 0) this.barkCooldown--;
+
+                // 腿部步态推进（速度越快步态越明显）
+                const speedFactor = Math.min(3, Math.abs(this.vx) * 2 + 0.5);
+                // 增强步态速度与幅度
+                this.legPhase += this.legSpeed * speedFactor * (0.8 + growthSpeedMultiplier * 0.06);
+
+                // 保持动物在页面底部（行走应该在底部）
+                const targetY = height - (this.type === 'cat' ? 28 : 36);
+                this.y += (targetY - this.y) * 0.25;
+            }
+
+            draw(ctx) {
+                ctx.save();
+                ctx.translate(this.x, this.y - (this.reactTimer > 0 ? 6 : 0));
+                const s = this.size / 30; // 参考缩放
+
+                // 身体
+                ctx.fillStyle = this.type === 'cat' ? '#DDA0DD' : '#D2B48C';
+                ctx.beginPath();
+                ctx.ellipse(0, 0, this.size * 0.6, this.size * 0.45, 0, 0, Math.PI * 2);
+                ctx.fill();
+
+                // 四肢（使用步态动画），幅度加强
+                ctx.fillStyle = '#B88866';
+                const legW = this.size * 0.11;
+                const legH = this.size * 0.18;
+                // 腿摆动幅度（更明显）
+                const legAmpY = Math.sin(this.legPhase) * this.size * 0.12;
+                const legAmpX = Math.cos(this.legPhase) * this.size * 0.06;
+                // 后腿
+                ctx.beginPath(); ctx.ellipse(-this.size * 0.18 + legAmpX, this.size * 0.36 + Math.abs(legAmpY), legW, legH, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.ellipse(this.size * 0.12 - legAmpX, this.size * 0.36 - Math.abs(legAmpY), legW, legH, 0, 0, Math.PI*2); ctx.fill();
+                // 前腿
+                ctx.beginPath(); ctx.ellipse(this.size * 0.38 - legAmpX, this.size * 0.12 - Math.abs(legAmpY), legW * 0.95, legH * 0.9, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.ellipse(this.size * 0.08 + legAmpX, this.size * 0.12 + Math.abs(legAmpY), legW * 0.95, legH * 0.9, 0, 0, Math.PI*2); ctx.fill();
+
+                // 尾巴（猫细长，狗粗壮），增加摆动
+                ctx.save();
+                ctx.translate(-this.size * 0.6, -this.size * 0.05);
+                const tailLen = this.type === 'cat' ? this.size * 0.9 : this.size * 1.1;
+                const tailWag = Math.sin(this.legPhase * 1.5 + (this.type==='dog'?0.5:0)) * (this.type==='cat'?0.35:0.9);
+                ctx.rotate(tailWag);
+                ctx.beginPath();
+                if (this.type === 'cat') {
+                    ctx.strokeStyle = '#C48FC8'; ctx.lineWidth = Math.max(3, this.size * 0.08);
+                    ctx.lineCap = 'round';
+                    ctx.moveTo(0,0); ctx.lineTo(-tailLen, -tailLen * 0.15); ctx.stroke();
+                } else {
+                    ctx.strokeStyle = '#B98B62'; ctx.lineWidth = Math.max(5, this.size * 0.12);
+                    ctx.lineCap = 'round';
+                    ctx.moveTo(0,0); ctx.lineTo(-tailLen, -tailLen * 0.08); ctx.stroke();
+                }
+                ctx.restore();
+
+                // 头部
+                // 头部位置参考，稍微向身体前方偏移
+                const hx = this.size * 0.6;
+                const hy = -this.size * 0.22 - Math.sin(this.legPhase) * 2;
+                ctx.fillStyle = this.type === 'cat' ? '#DDA0DD' : '#D2B48C';
+                ctx.beginPath(); ctx.arc(hx, hy, this.size * 0.36, 0, Math.PI*2); ctx.fill();
+
+                // 耳朵
+                ctx.fillStyle = this.type === 'cat' ? '#C89CC8' : '#C8B091';
+                if (this.type === 'cat') {
+                    ctx.beginPath(); ctx.moveTo(hx - 6*s, hy - this.size*0.34); ctx.lineTo(hx - 18*s, hy - this.size*0.02); ctx.lineTo(hx - 2*s, hy - this.size*0.08); ctx.fill();
+                    ctx.beginPath(); ctx.moveTo(hx + 8*s, hy - this.size*0.34); ctx.lineTo(hx + 22*s, hy - this.size*0.06); ctx.lineTo(hx + 2*s, hy - this.size*0.08); ctx.fill();
+                } else {
+                    ctx.beginPath(); ctx.ellipse(hx - this.size*0.12, hy - this.size*0.32, this.size*0.08, this.size*0.06, 0, 0, Math.PI*2); ctx.fill();
+                    ctx.beginPath(); ctx.ellipse(hx + this.size*0.12, hy - this.size*0.32, this.size*0.08, this.size*0.06, 0, 0, Math.PI*2); ctx.fill();
+                }
+
+                // 五官：眼睛、鼻子、嘴
+                // 眼睛
+                ctx.fillStyle = '#000';
+                ctx.beginPath(); ctx.ellipse(hx - this.size*0.08, hy - this.size*0.06, this.size*0.045, this.size*0.06, 0, 0, Math.PI*2); ctx.fill();
+                ctx.beginPath(); ctx.ellipse(hx + this.size*0.08, hy - this.size*0.06, this.size*0.045, this.size*0.06, 0, 0, Math.PI*2); ctx.fill();
+                // 鼻子
+                ctx.fillStyle = '#A33';
+                ctx.beginPath(); ctx.moveTo(hx, hy + 2*s); ctx.lineTo(hx - 6*s, hy + 10*s); ctx.lineTo(hx + 6*s, hy + 10*s); ctx.closePath(); ctx.fill();
+                // 嘴/舌头
+                ctx.strokeStyle = '#700'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(hx - 4*s, hy + 12*s); ctx.quadraticCurveTo(hx, hy + 16*s, hx + 4*s, hy + 12*s); ctx.stroke();
+                if (this.type === 'dog' && this.reactTimer > 0) {
+                    ctx.fillStyle = '#FF6B6B'; ctx.beginPath(); ctx.ellipse(hx, hy + 18*s, 4*s, 6*s, 0, 0, Math.PI*2); ctx.fill();
+                }
+
+                // 猫的胡须
+                if (this.type === 'cat') {
+                    ctx.strokeStyle = '#333'; ctx.lineWidth = 1.2;
+                    ctx.beginPath(); ctx.moveTo(hx - 8*s, hy + 6*s); ctx.lineTo(hx - 26*s, hy + 4*s); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(hx - 8*s, hy + 10*s); ctx.lineTo(hx - 26*s, hy + 12*s); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(hx + 8*s, hy + 6*s); ctx.lineTo(hx + 26*s, hy + 4*s); ctx.stroke();
+                    ctx.beginPath(); ctx.moveTo(hx + 8*s, hy + 10*s); ctx.lineTo(hx + 26*s, hy + 12*s); ctx.stroke();
+                }
+
+                // 额外：花纹（条纹/斑点）
+                ctx.fillStyle = this.type === 'cat' ? '#C7A3C7' : '#C9A97A';
+                if (this.pattern === 'stripes') {
+                    for (let i = 0; i < 3; i++) {
+                        ctx.beginPath(); ctx.ellipse(-6 + i*6, -2 + i*2 + Math.sin(this.legPhase + i)*2, 6 - i*1.5, 3, 0, 0, Math.PI*2); ctx.fill();
+                    }
+                } else {
+                    for (let i = 0; i < 4; i++) {
+                        ctx.beginPath(); ctx.arc(-4 + i*12, 6 - (i%2)*6 + Math.sin(this.legPhase + i)*1.5, 4, 0, Math.PI*2); ctx.fill();
+                    }
+                }
+
+                ctx.restore();
+            }
+
+            onPinch() {
+                if (this.barkCooldown > 0) return;
+                this.reactTimer = 20;
+                this.vocalize();
+                this.barkCooldown = 60;
+            }
+
+            vocalize() {
+                try {
+                    if (!audioContext) audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                    const now = audioContext.currentTime;
+                    const gain = audioContext.createGain();
+                    gain.gain.setValueAtTime(0, now);
+                    gain.gain.linearRampToValueAtTime(0.9, now + 0.01);
+                    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5);
+                    gain.connect(audioContext.destination);
+
+                    if (this.type === 'cat') {
+                        const osc = audioContext.createOscillator();
+                        osc.type = 'sine';
+                        osc.frequency.setValueAtTime(800 + Math.random() * 400, now);
+                        osc.connect(gain);
+                        osc.start(now);
+                        osc.stop(now + 0.35 + Math.random() * 0.15);
+                    } else { // dog
+                        const osc = audioContext.createOscillator();
+                        osc.type = 'square';
+                        osc.frequency.setValueAtTime(220 + Math.random() * 120, now);
+                        const det = audioContext.createOscillator();
+                        det.type = 'sine';
+                        det.frequency.setValueAtTime(6 + Math.random() * 6, now);
+                        const detGain = audioContext.createGain();
+                        detGain.gain.setValueAtTime(30 + Math.random() * 80, now);
+                        det.connect(detGain);
+                        detGain.connect(osc.frequency);
+
+                        osc.connect(gain);
+                        det.start(now);
+                        det.stop(now + 0.25);
+                        osc.start(now);
+                        osc.stop(now + 0.4 + Math.random() * 0.2);
+                    }
+                } catch (e) { console.warn('无法播放声音', e); }
+            }
+        }
+        
+        class Plant {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.isFlower = true; 
+                this.maxHeight = height * (0.1 + Math.random() * 0.3); 
+                this.segments = [];
+                this.currentHeight = 0;
+                this.growthRate = 1.5 + Math.random();
+                this.color = greenPalette[Math.floor(Math.random() * greenPalette.length)];
+                this.angle = -Math.PI / 2;
+                this.width = 6 + Math.random() * 4;
+                this.overshootAmount = 0.05 + Math.random() * 0.05;
+                this.retractSpeed = 0.02 + Math.random() * 0.01;
+                this.isOvershooting = false;
+                this.flowering = false;
+                this.hasFlowered = false;
+                this.flowerSize = 0;
+                
+                this.maxFlowerSize = 30 + Math.random() * 40; 
+                this.flowerColor = `hsl(${Math.random() * 360}, 75%, 65%)`;
+                
+                this.stamenColor = stamenPalette[Math.floor(Math.random() * stamenPalette.length)];
+                
+                this.petalCount = 5 + Math.floor(Math.random() * 6); 
+                
+                this.flowerDelayFrames = Math.floor(Math.random() * 60) + 30;
+                this.currentFlowerDelay = 0;
+                this.leaves = [];
+                this.swayBase = Math.random() * 100;
+                this.segmentLength = 5; 
+                this.segments.push({x: x, y: y, angle: this.angle, width: this.width});
+                this.rootAngle = this.angle;
+                this.targetRootAngle = this.angle;
+                this.hydrationCooldown = 0;
+            }
+
+            update() {
+                if (this.currentHeight < this.maxHeight || this.isOvershooting) {
+                    let speed = this.growthRate * growthSpeedMultiplier;
+                    if (this.currentHeight < this.maxHeight) {
+                        this.currentHeight += speed;
+                    }
+                    let targetHeight = this.maxHeight;
+                    if (this.currentHeight >= targetHeight && !this.isOvershooting) {
+                        this.isOvershooting = true;
+                        this.currentHeight = targetHeight * (1 + this.overshootAmount);
+                    }
+                    if (this.isOvershooting && this.currentHeight > this.maxHeight) {
+                        this.currentHeight = Math.max(this.maxHeight, this.currentHeight - this.retractSpeed * growthSpeedMultiplier);
+                        if (this.currentHeight <= this.maxHeight) {
+                            this.isOvershooting = false;
+                        }
+                    }
+                    const targetSegmentsCount = Math.floor(this.currentHeight / this.segmentLength);
+                    if (this.segments.length < targetSegmentsCount) {
+                        let lastSeg = this.segments[this.segments.length - 1];
+                        let newAngle = lastSeg.angle + (Math.random() - 0.5) * 0.05;
+                        let newX = lastSeg.x + Math.cos(newAngle) * this.segmentLength;
+                        let newY = lastSeg.y + Math.sin(newAngle) * this.segmentLength;
+                        let newWidth = this.width * (1 - this.currentHeight / this.maxHeight * 0.6);
+                        this.segments.push({x: newX, y: newY, angle: newAngle, width: newWidth});
+                    }
+                    this.applySwayToSegments();
+                } 
+                else { 
+                    this.applySwayToSegments(true);
+                }
+
+                if (!this.hasFlowered) {
+                    this.currentFlowerDelay++;
+                    if (this.currentFlowerDelay >= this.flowerDelayFrames) {
+                        this.flowering = true;
+                    }
+                }
+                
+                if (this.flowering) {
+                    if (this.flowerSize < this.maxFlowerSize) {
+                         this.flowerSize += (this.maxFlowerSize - this.flowerSize) * 0.08 * growthSpeedMultiplier + 0.1;
+                         if (this.flowerSize > this.maxFlowerSize) this.flowerSize = this.maxFlowerSize;
+                    } else {
+                        this.hasFlowered = true;
+                        this.flowering = false;
+                    }
+                }
+                this.leaves.forEach(leaf => {
+                    if (leaf.opacity < 1) leaf.opacity += 0.05 * growthSpeedMultiplier;
+                });
+                
+                if (this.hydrationCooldown > 0) this.hydrationCooldown--;
+            }
+            
+            hydrate() { 
+                if (this.hydrationCooldown <= 0) {
+                    if (this.currentHeight < this.maxHeight * 1.5) { 
+                         this.maxHeight *= 1.05; 
+                         this.hydrationCooldown = 60;
+                    }
+                }
+            }
+
+            applySwayToSegments(isMature = false) {
+                 let baseAngle = -Math.PI / 2;
+                let windBias = windForce * windDirection * (isMature ? 0.6 : 0.2); 
+                let naturalSway = Math.sin(performance.now() * 0.002 + this.swayBase) * 0.15; 
+                let elasticity = 0.05; 
+                this.targetRootAngle = baseAngle + naturalSway + windBias;
+                this.rootAngle += (this.targetRootAngle - this.rootAngle) * (elasticity + windForce * 0.05); 
+                
+                if (this.segments.length > 0) this.segments[0].angle = this.rootAngle;
+
+                for (let i = 1; i < this.segments.length; i++) {
+                    const prevSeg = this.segments[i - 1];
+                    const currentSeg = this.segments[i];
+                    currentSeg.angle = prevSeg.angle + (currentSeg.angle - prevSeg.angle) * 0.8; 
+                    currentSeg.x = prevSeg.x + Math.cos(currentSeg.angle) * this.segmentLength;
+                    currentSeg.y = prevSeg.y + Math.sin(currentSeg.angle) * this.segmentLength;
+                    if (i > this.segments.length * 0.5) currentSeg.angle += windBias * 0.1;
+                    const heightProgress = i / this.segments.length;
+                    currentSeg.width = this.width * (1 - heightProgress * 0.6);
+                }
+            }
+
+            draw(ctx) {
+                this.leaves.forEach(leaf => {
+                    ctx.globalAlpha = leaf.opacity;
+                    drawLeaf(ctx, leaf.x, leaf.y, leaf.size, leaf.angle, leafColor, false);
+                    ctx.globalAlpha = 1;
+                });
+                if (this.segments.length > 1) {
+                    ctx.beginPath();
+                    ctx.moveTo(this.segments[0].x, this.segments[0].y);
+                    for (let i = 1; i < this.segments.length - 1; i++) {
+                        let current = this.segments[i];
+                        let next = this.segments[i + 1];
+                        let xc = (current.x + next.x) / 2;
+                        let yc = (current.y + next.y) / 2;
+                        ctx.quadraticCurveTo(current.x, current.y, xc, yc);
+                    }
+                    let last = this.segments[this.segments.length-1];
+                    ctx.lineTo(last.x, last.y); 
+                    ctx.strokeStyle = this.color;
+                    ctx.lineWidth = last.width;
+                    ctx.lineCap = 'round';
+                    ctx.stroke();
+                }
+                if (this.flowerSize > 0) {
+                    let tip = this.segments[this.segments.length - 1];
+                    this.drawFlower(ctx, tip.x, tip.y, this.flowerSize, this.flowerColor, this.petalCount);
+                }
+            }
+            
+            drawFlower(ctx, x, y, size, color, petalCount) {
+                ctx.save();
+                ctx.translate(x, y);
+
+                let currentPetalSize = size; 
+                let coreSize = size / 3;
+                
+                ctx.fillStyle = color;
+                for (let i = 0; i < petalCount; i++) {
+                    ctx.beginPath();
+                    let windJitter = Math.sin(performance.now() * 0.005 + this.swayBase) * 0.05 * windForce * 2; 
+                    ctx.rotate(Math.PI * 2 / petalCount + windJitter); 
+                    ctx.ellipse(0, currentPetalSize * 0.5, currentPetalSize * 0.3, currentPetalSize, 0, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+
+                ctx.beginPath();
+                ctx.arc(0, 0, coreSize, 0, Math.PI * 2);
+                ctx.fillStyle = this.stamenColor; 
+                ctx.fill();
+
+                ctx.restore();
+            }
+        }
+
+        class Grass {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.isFlower = false; 
+                this.bladeCount = Math.floor(Math.random() * 3) + 3; 
+                this.blades = []; 
+                this.growthProgress = 0; 
+                for (let i = 0; i < this.bladeCount; i++) {
+                    const initialAngleOffset = (i - (this.bladeCount - 1) / 2) * (Math.PI / 10); 
+                    this.blades.push({
+                        maxHeight: height * (0.05 + Math.random() * 0.15), 
+                        baseWidth: 5 + Math.random() * 3, 
+                        segments: [{x: x, y: y, angle: -Math.PI / 2 + initialAngleOffset}],
+                        swayOffset: Math.random() * 100,
+                        swayFactor: 0.15 + Math.random() * 0.1, 
+                        swaySpeed: 0.02 + Math.random() * 0.015, 
+                        currentAngle: -Math.PI / 2 + initialAngleOffset,
+                        color: greenPalette[Math.floor(Math.random() * greenPalette.length)],
+                        segmentLength: 8 
+                    });
+                }
+            }
+            update() {
+                if (this.growthProgress < 1) {
+                    this.growthProgress += 0.03 * growthSpeedMultiplier;
+                    if (this.growthProgress > 1) this.growthProgress = 1;
+                    this.blades.forEach(blade => {
+                        const currentHeight = blade.maxHeight * this.growthProgress;
+                        if (blade.segments.length < currentHeight / blade.segmentLength) {
+                             let lastSeg = blade.segments[blade.segments.length - 1];
+                             let newAngle = lastSeg.angle + (Math.random() - 0.5) * 0.1;
+                             let newX = lastSeg.x + Math.cos(newAngle) * blade.segmentLength;
+                             let newY = lastSeg.y + Math.sin(newAngle) * blade.segmentLength;
+                             blade.segments.push({x: newX, y: newY, angle: newAngle});
+                        }
+                    });
+                } 
+                
+                this.blades.forEach(blade => {
+                    let baseAngle = -Math.PI / 2;
+                    let windBias = windForce * windDirection * 0.5; 
+                    let naturalSway = Math.sin(performance.now() * blade.swaySpeed + blade.swayOffset) * blade.swayFactor;
+                    let targetAngle = baseAngle + naturalSway + windBias;
+                    blade.currentAngle += (targetAngle - blade.currentAngle) * (0.05 + windForce * 0.05) * growthSpeedMultiplier;
+                    
+                    let currentX = this.x;
+                    let currentY = this.y;
+                    
+                    for (let i = 1; i < blade.segments.length; i++) {
+                        if (i === 0) {
+                            blade.segments[i].x = currentX;
+                            blade.segments[i].y = currentY;
+                            blade.segments[i].angle = blade.currentAngle; 
+                        } else {
+                            const prevSeg = blade.segments[i - 1];
+                            let segAngle = prevSeg.angle + (blade.currentAngle - prevSeg.angle) * (0.1 + 0.9 * (1 - i/blade.segments.length)); 
+                            blade.segments[i].x = prevSeg.x + Math.cos(segAngle) * blade.segmentLength;
+                            blade.segments[i].y = prevSeg.y + Math.sin(segAngle) * blade.segmentLength;
+                            blade.segments[i].angle = segAngle;
+                        }
+                    }
+                });
+            }
+            
+            draw(ctx) {
+                this.blades.forEach(blade => {
+                    if (blade.segments.length > 1) {
+                        const basePoint = blade.segments[0];
+                        const tipPoint = blade.segments[blade.segments.length - 1];
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(basePoint.x, basePoint.y); 
+
+                        const middleIndex = Math.floor(blade.segments.length / 2);
+                        const midPoint = blade.segments[middleIndex];
+                        let baseWidth = blade.baseWidth * this.growthProgress;
+                        
+                        ctx.quadraticCurveTo(
+                            basePoint.x + Math.cos(basePoint.angle - Math.PI/2) * baseWidth * 0.5, 
+                            basePoint.y + Math.sin(basePoint.angle - Math.PI/2) * baseWidth * 0.2,
+                            midPoint.x + Math.cos(midPoint.angle - Math.PI/2) * baseWidth * 0.3, 
+                            midPoint.y + Math.sin(midPoint.angle - Math.PI/2) * baseWidth * 0.3
+                        );
+                        
+                        ctx.quadraticCurveTo(
+                            tipPoint.x + Math.cos(tipPoint.angle - Math.PI/2) * 1,
+                            tipPoint.y + Math.sin(tipPoint.angle - Math.PI/2) * 1,
+                            tipPoint.x, 
+                            tipPoint.y 
+                        );
+
+                        ctx.quadraticCurveTo(
+                            tipPoint.x + Math.cos(tipPoint.angle + Math.PI/2) * 1,
+                            tipPoint.y + Math.sin(tipPoint.angle + Math.PI/2) * 1,
+                            midPoint.x + Math.cos(midPoint.angle + Math.PI/2) * baseWidth * 0.3, 
+                            midPoint.y + Math.sin(midPoint.angle + Math.PI/2) * baseWidth * 0.3
+                        );
+
+                        ctx.quadraticCurveTo(
+                            basePoint.x + Math.cos(basePoint.angle + Math.PI/2) * baseWidth * 0.5, 
+                            basePoint.y + Math.sin(basePoint.angle + Math.PI/2) * baseWidth * 0.2,
+                            basePoint.x, 
+                            basePoint.y
+                        );
+
+                        const gradient = ctx.createLinearGradient(basePoint.x, basePoint.y, tipPoint.x, tipPoint.y);
+                        gradient.addColorStop(0, blade.color);
+                        gradient.addColorStop(1, '#A5D6A7'); 
+                        ctx.fillStyle = gradient;
+                        ctx.fill();
+                        
+                        ctx.beginPath();
+                        ctx.moveTo(basePoint.x, basePoint.y);
+                        for (let i = 1; i < blade.segments.length; i++) {
+                            const seg = blade.segments[i];
+                            let xc = (seg.x + blade.segments[i-1].x) / 2;
+                            let yc = (seg.y + blade.segments[i-1].y) / 2;
+                            ctx.quadraticCurveTo(blade.segments[i-1].x, blade.segments[i-1].y, xc, yc);
+                        }
+                        ctx.lineTo(tipPoint.x, tipPoint.y);
+                        
+                        ctx.strokeStyle = `rgba(255, 255, 255, ${0.2 + windForce * 0.1})`;
+                        ctx.lineWidth = 1;
+                        ctx.lineCap = 'round';
+                        ctx.stroke();
+                    }
+                });
+            }
+        }
+        
+        class Raindrop {
+            constructor(x, y) {
+                this.x = x;
+                this.y = y;
+                this.vy = 5 + Math.random() * 8;
+                this.vx = (Math.random() - 0.5) * 2;
+                this.length = 10 + Math.random() * 10;
+                this.opacity = 0.8;
+                this.hitGround = false;
+                this.impactTimer = 0;
+            }
+
+            update() {
+                if (this.hitGround) {
+                    this.impactTimer++;
+                    this.opacity -= 0.05;
+                    return;
+                }
+
+                this.y += this.vy;
+                this.x += this.vx;
+
+                if (this.y > height - 10) {
+                    this.y = height - 10;
+                    this.hitGround = true;
+                }
+            }
+
+            draw(ctx) {
+                ctx.strokeStyle = `rgba(100, 150, 255, ${this.opacity})`;
+                ctx.lineWidth = 2;
+                
+                if (this.hitGround) {
+                    ctx.beginPath();
+                    ctx.arc(this.x, this.y, 3 + this.impactTimer * 0.5, 0, Math.PI * 2);
+                    ctx.stroke();
+                    return;
+                }
+
+                ctx.beginPath();
+                ctx.moveTo(this.x, this.y);
+                ctx.lineTo(this.x + this.vx, this.y + this.length);
+                ctx.stroke();
+            }
+        }
+        
+        class Cloud {
+            constructor() {
+                this.direction = Math.random() > 0.5 ? 1 : -1; 
+                this.vx = 0.5 + Math.random() * 1.5;
+                this.baseSize = 50 + Math.random() * 100;
+                this.initialBaseSize = this.baseSize;
+                this.size = this.baseSize;
+                
+                this.isRaining = Math.random() < 0.05; 
+                this.rainTimer = 0;
+                this.maxRainDuration = 100 + Math.random() * 100;
+                this.shrinkRate = 0;
+                this.opacity = 0.9;
+                this.isShrinking = false; 
+                
+                this.reset(true); 
+            }
+
+            reset(isInitial = false) {
+                this.direction = Math.random() > 0.5 ? 1 : -1;
+                this.vx = 0.5 + Math.random() * 1.5;
+                this.baseSize = 50 + Math.random() * 100;
+                this.size = this.baseSize;
+                this.initialBaseSize = this.baseSize;
+                
+                if (this.direction === 1) { 
+                     this.x = isInitial ? Math.random() * width : -this.initialBaseSize * 2 - Math.random() * width * 0.5;
+                } else { 
+                     this.x = isInitial ? Math.random() * width : width + this.initialBaseSize * 2 + Math.random() * width * 0.5;
+                }
+                
+                this.y = Math.random() * (height * 0.2); 
+                this.isRaining = Math.random() < 0.05; 
+                this.rainTimer = 0;
+                this.maxRainDuration = 100 + Math.random() * 100;
+                this.shrinkRate = 0;
+                this.opacity = 0.9;
+                this.isShrinking = false; 
+            }
+
+            update() {
+                const speed = this.vx + windForce * 2;
+                this.x += speed * this.direction; 
+                
+                let disappearedByBoundary = false;
+                if (this.direction === 1 && this.x > width + this.baseSize * 1.5) { 
+                    disappearedByBoundary = true;
+                } else if (this.direction === -1 && this.x < -this.baseSize * 1.5) { 
+                    disappearedByBoundary = true;
+                }
+                
+                if (disappearedByBoundary) {
+                    this.reset();
+                    return; 
+                }
+
+                if (this.isRaining) {
+                    this.rainTimer++;
+                    if (this.rainTimer % 5 === 0) {
+                        const rx = this.x + (Math.random() - 0.5) * this.size * 1.5;
+                        const ry = this.y + this.size * 0.5;
+                        if (rx > 0 && rx < width) {
+                            raindrops.push(new Raindrop(rx, ry));
+                        }
+                    }
+
+                    if (this.rainTimer > this.maxRainDuration) {
+                        this.isRaining = false;
+                        this.rainTimer = 0;
+                        this.shrinkRate = 0.5;
+                        this.isShrinking = true; 
+                    }
+                }
+                
+                if (this.isShrinking) {
+                    this.size -= this.shrinkRate * 0.01 * this.baseSize;
+                    this.opacity -= 0.01; 
+                    
+                    if (this.size <= 10 || this.opacity <= 0) {
+                         this.reset();
+                    }
+                }
+            }
+            
+            checkCollision(handX, handY) {
+                const cloudRadius = this.size * 0.8;
+                const dx = handX - this.x;
+                const dy = handY - this.y;
+                
+                if (Math.hypot(dx, dy) < cloudRadius && !this.isRaining && !this.isShrinking) {
+                    this.isRaining = true; 
+                    this.rainTimer = 0;
+                    this.isShrinking = false; 
+                    return true; 
+                }
+                return false;
+            }
+
+            draw(ctx) {
+                ctx.globalAlpha = this.opacity;
+                ctx.fillStyle = this.isRaining || this.isShrinking ? 'rgba(150, 160, 170, 0.8)' : 'rgba(255, 255, 255, 0.9)';
+                
+                const segments = [
+                    {dx: -0.8, dy: 0, r: 1}, 
+                    {dx: -0.4, dy: -0.2, r: 1.2},
+                    {dx: 0, dy: -0.1, r: 1.5}, 
+                    {dx: 0.5, dy: 0, r: 1.1},
+                    {dx: 0.1, dy: 0.3, r: 0.9},
+                ];
+                
+                ctx.save();
+                ctx.translate(this.x, this.y);
+                ctx.beginPath();
+                segments.forEach(seg => {
+                    ctx.arc(seg.dx * this.size * 0.4, seg.dy * this.size * 0.4, seg.r * this.size * 0.3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
+                ctx.restore();
+                ctx.globalAlpha = 1;
+            }
+        }
+        
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height); 
+            ctx.save();
+            ctx.scale(dpr, dpr); 
+            
+            clouds.forEach(cloud => {
+                cloud.update();
+                cloud.draw(ctx);
+            });
+            
+            if (birds.length < clouds.length / 3) { 
+                if (Math.random() < 0.01) { 
+                    birds.push(new Bird());
+                }
+            }
+
+            for (let i = birds.length - 1; i >= 0; i--) {
+                const bird = birds[i];
+                bird.update();
+                bird.draw(ctx);
+                
+                if (bird.x < -150 || bird.x > width + 150) {
+                    birds.splice(i, 1);
+                }
+            }
+
+            // 动物（猫/狗）生成与更新逻辑
+            const treeCount_now = plants.filter(p => p.constructor && p.constructor.name === 'Tree').length;
+            const flowerCount_now = plants.filter(p => p instanceof Plant && p.hasFlowered).length;
+            const vegCount_now = plants.filter(p => p instanceof Vegetable || p instanceof TomatoPlant).length;
+            const animalCount_now = animals.length;
+
+            const maxAnimals = Math.min(10, Math.max(0, vegCount_now - 1));
+            if (animals.length < maxAnimals && Math.random() < 0.003) {
+                const ax = Math.random() * width;
+                const isCat = Math.random() > 0.5;
+                const ay = height - (isCat ? 28 : 36) - Math.random() * 8;
+                animals.push(new Animal(ax, ay, isCat ? 'cat' : 'dog'));
+            }
+
+            for (let i = animals.length - 1; i >= 0; i--) {
+                const a = animals[i];
+                a.update();
+                a.draw(ctx);
+                if (a.x < -150 || a.x > width + 150) {
+                    animals.splice(i, 1);
+                }
+            }
+
+            for (let i = raindrops.length - 1; i >= 0; i--) {
+                const drop = raindrops[i];
+                drop.update();
+                
+                let hitOrganism = false;
+                if (!drop.hitGround) {
+                    for (const p of plants) {
+                        if (p instanceof Plant || p instanceof TomatoPlant) {
+                            let plantTopY = p.y - p.currentHeight;
+                            if (drop.x >= p.x - p.width * 2 && drop.x <= p.x + p.width * 2 && drop.y >= plantTopY && drop.y <= p.y) {
+                                p.hydrate(); 
+                                hitOrganism = true;
+                                break; 
+                            }
+                        } else if (p instanceof Vegetable) {
+                            let vegRadius = p.size;
+                            let dx = drop.x - p.x;
+                            let dy = drop.y - p.y;
+                            if (Math.hypot(dx, dy) < vegRadius * 1.2) { 
+                                p.hydrate();
+                                hitOrganism = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (hitOrganism || drop.impactTimer > 15) { 
+                    raindrops.splice(i, 1);
+                } else {
+                    drop.draw(ctx);
+                }
+            }
+            
+            for (let i = seeds.length - 1; i >= 0; i--) {
+                seeds[i].update();
+                seeds[i].draw(ctx);
+                if (seeds[i].grounded) {
+                    seeds.splice(i, 1);
+                }
+            }
+            
+            plants.forEach(plant => {
+                plant.update();
+                plant.draw(ctx);
+            });
+            
+            const flowersExist = plants.some(p => p.hasFlowered && p instanceof Plant);
+            if (flowersExist && insects.length < 8) { 
+                if (Math.random() < 0.005) { 
+                    insects.push(new Insect());
+                }
+            }
+
+            for (let i = insects.length - 1; i >= 0; i--) {
+                const bug = insects[i];
+                bug.update();
+                bug.draw(ctx);
+                if (bug.x < -250 || bug.x > width + 250 || bug.y < -200 || bug.y > height + 200) {
+                    insects.splice(i, 1);
+                }
+            }
+            
+            ctx.restore(); 
+            requestAnimationFrame(animate);
+        }
+
+        function updateCursors(handsData) {
+            const existingCursors = cursorContainer.children;
+            const requiredCursors = handsData.length;
+            
+            while (cursorContainer.children.length < requiredCursors) {
+                const el = document.createElement('div');
+                el.className = 'hand-cursor';
+                cursorContainer.appendChild(el);
+            }
+
+            for (let i = 0; i < cursorContainer.children.length; i++) {
+                const cursorEl = cursorContainer.children[i];
+                if (i < requiredCursors) {
+                    const data = handsData[i];
+                    cursorEl.style.display = 'block';
+                    cursorEl.style.left = data.x + 'px';
+                    cursorEl.style.top = data.y + 'px';
+                    cursorEl.style.borderColor = data.pinched ? 'red' : 'white';
+                    cursorEl.style.width = data.pinched ? '18px' : '24px'; 
+                    cursorEl.style.height = data.pinched ? '18px' : '24px';
+                } else {
+                    cursorEl.style.display = 'none';
+                }
+            }
+        }
+
+        function onResults(results) {
+            statusDiv.style.display = 'none';
+            
+            const handsData = [];
+            let currentPinchStates = []; 
+
+            if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+                
+                for (let i = 0; i < results.multiHandLandmarks.length; i++) {
+                    const landmarks = results.multiHandLandmarks[i];
+                    
+                    const indexTip = landmarks[8];
+                    const thumbTip = landmarks[4];
+
+                    const ix = (1 - indexTip.x) * width;
+                    const iy = indexTip.y * height;
+                    const tx = (1 - thumbTip.x) * width;
+                    const ty = thumbTip.y * height;
+
+                    const distance = Math.hypot(ix - tx, iy - ty);
+                    const centerX = (ix + tx) / 2;
+                    const centerY = (iy + ty) / 2;
+                    
+                    const isPinched = distance < 50;
+                    
+                    handsData.push({
+                        x: centerX,
+                        y: centerY,
+                        pinched: isPinched
+                    });
+                    
+                    const wasPinched = lastPinchStates[i] || false;
+                    const isNewPinch = isPinched && !wasPinched;
+                    currentPinchStates.push(isPinched);
+
+                    if (isNewPinch) { // 只有在新捏合开始时执行
+                        let didTriggerRain = false;
+                        
+                        // 1. 云彩捏合检测
+                        if (centerY < height * 0.3) { 
+                            for (const cloud of clouds) {
+                                if (cloud.checkCollision(centerX, centerY)) {
+                                    didTriggerRain = true;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        // 2. 优先检测是否与动物交互（捏合在动物上）
+                        let didInteractWithAnimal = false;
+                        if (!didTriggerRain && animals.length > 0) {
+                            for (const a of animals) {
+                                const dx = centerX - a.x;
+                                const dy = centerY - a.y;
+                                if (Math.hypot(dx, dy) < 60) {
+                                    a.onPinch();
+                                    didInteractWithAnimal = true;
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 3. 种子撒下逻辑（如果没有触发雨也没有与动物交互）
+                        if (!didTriggerRain && !didInteractWithAnimal) {
+                            seeds.push(new Seed(centerX, centerY));
+                        }
+                    }
+                }
+                // 更新上一帧状态
+                lastPinchStates = currentPinchStates;
+            } else {
+                lastPinchStates = [];
+            }
+            
+            updateCursors(handsData);
+        }
+
+        const hands = new Hands({locateFile: (file) => {
+            return `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`;
+        }});
+
+        hands.setOptions({
+            maxNumHands: 4, 
+            modelComplexity: 1,
+            minDetectionConfidence: 0.5,
+            minTrackingConfidence: 0.5
+        });
+
+        hands.onResults(onResults);
+
+        const camera = new Camera(videoElement, {
+            onFrame: async () => {
+                await hands.send({image: videoElement});
+            },
+            width: 1280,
+            height: 720
+        });
+        
+        const initialCloudCount = 15;
+        for (let i = 0; i < initialCloudCount; i++) {
+            clouds.push(new Cloud());
+        }
+
+        async function startCameraAndHands() {
+            statusDiv.innerText = "正在请求摄像头权限并初始化AI模型...";
+            try {
+                await camera.start();
+                await new Promise((resolve) => {
+                    if (videoElement.readyState >= 3) {
+                        resolve();
+                    } else {
+                        videoElement.addEventListener('loadeddata', resolve, { once: true });
+                        videoElement.addEventListener('canplay', resolve, { once: true });
+                        setTimeout(resolve, 1500); 
+                    }
+                });
+                
+                statusDiv.innerText = "准备就绪";
+                tapToStartDiv.style.opacity = '0';
+                setTimeout(() => tapToStartDiv.style.display = 'none', 300);
+
+                animate();
+                startMicInput();
+
+            } catch (err) {
+                console.error(err);
+                statusDiv.innerText = "启动失败: " + err.message;
+            }
+        }
+        
+        function checkUserAgentForMobile() {
+            const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+            return /android|ipad|iphone|ipod/i.test(userAgent);
+        }
+
+        const isMobile = checkUserAgentForMobile();
+
+        if (isMobile) {
+            tapToStartDiv.addEventListener('click', () => {
+                 tapToStartDiv.removeEventListener('click', arguments.callee); 
+                 startCameraAndHands();
+            }, { once: true });
+        } else {
+            tapToStartDiv.style.display = 'none'; 
+            startCameraAndHands();
+        }
+    </script>
+</body>
+</html>
